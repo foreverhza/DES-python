@@ -1,3 +1,5 @@
+import binascii
+import base64
 # Permutation tables and S-boxes
 IP = (
     58, 50, 42, 34, 26, 18, 10, 2,
@@ -161,12 +163,7 @@ def generate_round_keys(C0, D0):
         round_keys[key]=Ki
     return round_keys
 
-def round_function(Ri, Ki):
-    # expand Ri from 32 to 48 bit using table E
-    Ri = permutation_by_table(Ri, 32, E)
-    # xor with round key
-    # WRITE YOUR CODE HERE!
-    Ri = Ri^Ki
+def S_box(Ri):
     # split Ri into 8 groups of 6 bit
     # WRITE YOUR CODE HERE!
     B=[]
@@ -186,6 +183,14 @@ def round_function(Ri, Ki):
     for i in range(8):
         x=B[i]
         Ri=(Ri<<4)|(x&0xf)
+    return Ri
+def round_function(Ri, Ki):
+    # expand Ri from 32 to 48 bit using table E
+    Ri = permutation_by_table(Ri, 32, E)
+    # xor with round key
+    # WRITE YOUR CODE HERE!
+    Ri = Ri^Ki
+    Ri = S_box(Ri)
     # another permutation 32bit -> 32bit
     Ri=permutation_by_table(Ri, 32, P)
     return Ri
@@ -227,16 +232,129 @@ def encrypt(msg, key, decrypt=False):
 def decrypt(cipher_text, key):
     plain_text = encrypt(cipher_text, key, decrypt=True)
     return bytearray.fromhex(str(hex(plain_text))[2:]).decode()
+
+def create_padding(msg):
+    if len(msg)%8 !=0:
+        x=8-len(msg)%8
+        msg=msg+"\0"*x
+    return msg
+
+#DES3
+##输入128位密钥key1|key2
+def triple_des(key,msg,decrypt=False):
+    key1=(key>>64)&(2**64-1)
+    key2=key&(2**64-1)
+    msg=encrypt(msg,key1,decrypt)
+    msg=encrypt(msg,key2,not decrypt)
+    msg=encrypt(msg,key1,decrypt)
+    return msg
     
-import binascii
-import base64
-key = int(binascii.hexlify(b'FudanNiu') , 16)
-cipher_text_odd = 0x9b99d07d9980305e
-cipher_text_even = 0x6f612748df99a70c
-aeskey1=decrypt(cipher_text_odd,key)
-aeskey2=decrypt(cipher_text_even,key)
-print(aeskey1)
-print(aeskey2)
+    
+#ECB模式
+##输入字符串,输出加密结果的base64编码
+def des_ecb_encrypt(msg,key):
+    if(len(key) != 8):
+        print("请输入八位字符串作为密钥")
+        return
+    key = int(binascii.hexlify(key.encode()) , 16)
+    msg=create_padding(msg)
+    y=len(msg)/8
+    i=0
+    ciphers=0
+    while i<y:
+        msg_block=int(binascii.hexlify(msg[i*8:(i+1)*8].encode()),16)
+        ciphers=(ciphers<<64)|encrypt(msg_block,key)
+        i=i+1
+    return base64.b64encode(bytearray.fromhex(str(hex(ciphers))[2:])).decode()
+##输入base64字符串,返回DES解密后的字符串
+def des_ecb_decrypt(cipher,key):
+    msg=base64.b64decode(cipher.encode())
+    if(len(key) != 8):
+        print("请输入八位字符串作为密钥")
+        return
+    key = int(binascii.hexlify(key.encode()) , 16)
+    msg=int(binascii.hexlify(msg),16)
+    plain_text=""
+    while msg != 0:
+        plain_text=decrypt(msg&(2**64-1),key)+plain_text
+        msg=msg>>64
+    return plain_text.split()[0]
+#CBC
+##输入字符串,输出加密结果的base64编码
+def des_cbc_encrypt(msg,key,iv):
+    if(len(key) != 8):
+        print("请输入八位字符串作为密钥")
+        return
+    if(len(iv) != 8):
+        print("请输入八位字符串作为随机字符串iv")
+        return
+    key = int(binascii.hexlify(key.encode()) , 16)
+    iv = int(binascii.hexlify(iv.encode()) , 16)
+    msg=create_padding(msg)
+    y=len(msg)/8
+    i=0
+    ciphers=0
+    while i<y:
+        msg_block=int(binascii.hexlify(msg[i*8:(i+1)*8].encode()),16)^iv
+        c=encrypt(msg_block,key)
+        ciphers=(ciphers<<64)|c
+        iv=c
+        i=i+1
+    return base64.b64encode(bytearray.fromhex(str(hex(ciphers))[2:])).decode()
+
+##输入base64字符串,返回DES解密后的字符串
+def des_cbc_decrypt(cipher,key,iv):
+    msg=base64.b64decode(cipher.encode())
+    if(len(key) != 8):
+        print("请输入八位字符串作为密钥")
+        return
+    if(len(iv) != 8):
+        print("请输入八位字符串作为随机字符串iv")
+        return
+    key = int(binascii.hexlify(key.encode()) , 16)
+    iv=int(binascii.hexlify(iv.encode()) , 16)
+    msg=int(binascii.hexlify(msg),16)
+    ciphers=[]
+    while msg != 0:
+        ciphers.append(msg&(2**64-1))
+        msg=msg>>64
+    y=len(ciphers)
+    plain_text=""
+    while y>0:
+        cipher=ciphers[y-1]
+        plain=encrypt(cipher,key,decrypt=True)^iv
+        iv=cipher
+        plain_text=plain_text+bytearray.fromhex(str(hex(plain))[2:]).decode()
+        y=y-1
+    return plain_text.split()[0]
 
 
 
+#key = int(binascii.hexlify(b'FudanNiu') , 16)
+#cipher_text_odd = 0x9b99d07d9980305e
+#cipher_text_even = 0x6f612748df99a70c
+#aeskey1=decrypt(cipher_text_odd,key)
+#aeskey2=decrypt(cipher_text_even,key)
+#print(aeskey1)
+#print(aeskey2)
+#key="FudanNiu"
+#cipher=des_ecb_encrypt("HELLO,WORLD!",key)
+#print(cipher)
+#p=des_ecb_decrypt(cipher,key)
+#print(p)
+#
+#iv="fudanctf"
+#cipher=des_cbc_encrypt("HELLO,WORLD!",key,iv)
+#print(cipher)
+#p=des_cbc_decrypt(cipher,key,iv)
+#print(p)
+
+##DES3
+
+key = int(binascii.hexlify(b'FudanNiufudanctf') , 16)
+plain = int(binascii.hexlify(b'hellohza') , 16)
+cipher=triple_des(key,plain)
+p=triple_des(key,cipher,True)
+print(plain)
+print(cipher)
+print(p)
